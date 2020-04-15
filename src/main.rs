@@ -1,7 +1,18 @@
 use std::env;
 use validators::ValidatorOption;
 use validators::ipv4::{IPv4Validator};
-use validators::domain::{DomainValidator};
+use validators::domain::{Domain, DomainValidator};
+use dns_lookup::lookup_host;
+use pnet::packet::{MutablePacket, Packet};
+extern crate pnet_datalink;
+
+fn dns(domain : Domain) {
+    match lookup_host(domain.get_full_domain()) {
+        Ok(ips) => println!("{:?}", ips),
+        Err(_) => println!("DNS lookup did not resolve")
+     }
+}
+
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -18,10 +29,17 @@ fn main() {
         localhost: ValidatorOption::NotAllow
     };
 
+    for interface in pnet_datalink::interfaces() {
+        println!("{}", interface);
+    }
+
     match ipv4.parse_string(raw_addr.clone()) {
-        Ok(ipv4_addr) => assert_eq!("1.1.1.1", ipv4_addr.get_full_ipv4()),
+        Ok(ipv4_addr) => assert_eq!(raw_addr, ipv4_addr.get_full_ipv4()),
         Err(_) => match domain.parse_string(raw_addr.clone()) {
-            Ok(domain) => assert_eq!("google.com", domain.get_domain()),
+            Ok(domain) => {
+                //assert_eq!(raw_addr, domain.get_full_domain());
+                dns(domain)
+            }
             Err(_) => println!("Not valid ip or hostname")
         }
     }
