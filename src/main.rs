@@ -1,3 +1,9 @@
+use std::env;
+
 fn main() {
-    println!("Hello, world!");
+    let args: Vec<String> = env::args().collect();
+    
+    let hostname = &args[1]
+
+    println!("{:?}", args);
 }
