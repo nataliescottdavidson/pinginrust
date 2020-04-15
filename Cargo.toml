@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 smoltcp = "0.6"
 validators = "0.20.16"
+dns-lookup = "1.0.1"
