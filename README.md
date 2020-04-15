@@ -6,5 +6,7 @@ Will likely need to use a library to abstract raw sockets. Also don't think I'll
 
 Reference implementation didn't work on mac. Set up on digitialocean and was successful. However, this implementation doesn't run forever as ping is supposed to and instead stops after 4 packets. Also doesn't support hostname translation. 
 
+Completed pattern match logic using Haskell style case statement. Feeling pretty good for a Rust newbie!
+
 
 
