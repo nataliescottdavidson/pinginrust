@@ -1,5 +1,4 @@
 use std::env;
-use smoltcp::wire::{Ipv4Address};
 use validators::ValidatorOption;
 use validators::ipv4::{IPv4Validator};
 use validators::domain::{DomainValidator};
@@ -7,9 +6,9 @@ use validators::domain::{DomainValidator};
 fn main() {
     let args: Vec<String> = env::args().collect();
    
-    let addr = args[1].to_string();
+    let raw_addr = args[1].to_string().clone();
 
-    let ip = IPv4Validator {
+    let ipv4 = IPv4Validator {
         port: ValidatorOption::NotAllow,
         local: ValidatorOption::NotAllow,
         ipv6: ValidatorOption::Allow
@@ -17,16 +16,13 @@ fn main() {
     let domain = DomainValidator {
         port: ValidatorOption::NotAllow,
         localhost: ValidatorOption::NotAllow
-    }
-    let addr_ = ip.parse_string(addr);
-    if addr_.is_ok() {
-        assert_eq!("1.1.1.1", addr_.unwrap());
-    }
-    else {
-        let addr__ = domain.parse_string(addr);
-        if addr__.is_ok() {
-            assert_eq!( "google.com", addr.unwrap()
+    };
 
+    match ipv4.parse_string(raw_addr.clone()) {
+        Ok(ipv4_addr) => assert_eq!("1.1.1.1", ipv4_addr.get_full_ipv4()),
+        Err(_) => match domain.parse_string(raw_addr.clone()) {
+            Ok(domain) => assert_eq!("google.com", domain.get_domain()),
+            Err(_) => println!("Not valid ip or hostname")
         }
     }
 }
