@@ -25,6 +25,7 @@ use std::{thread, time};
 use validators::domain::{Domain, DomainValidator};
 use validators::ipv4::IPv4Validator;
 use validators::ValidatorOption;
+use bincode;
 
 fn dns(domain: Domain) -> IpAddr {
     //Need to check for ipv4 vs v6
@@ -69,12 +70,17 @@ fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
     loop {
         let mut buffer = [0u8; 42];
         let mut packet = MutableEchoRequestPacket::new(&mut buffer).unwrap();
+        let target: Option<time::SystemTime>  = Some(time::SystemTime::now());
+        let encoded: Vec<u8> = bincode::serialize(&target).unwrap();
+        let decoded: Option<time::SystemTime> = bincode::deserialize(&encoded[..]).unwrap();
+        assert_eq!(target, decoded);
+
         packet.set_sequence_number(icmp_seq);
         packet.set_icmp_type(IcmpTypes::EchoRequest);
         packet.set_icmp_code(IcmpCode::new(0));
         let echo_checksum = checksum(&IcmpPacket::new(packet.packet()).unwrap());
         packet.set_checksum(echo_checksum);
-
+        packet.set_payload(&encoded);
         match sender.send_to(packet, ip_addr) {
             Ok(_size) => (),
             Err(e) => println!("{:?}", e),
@@ -82,6 +88,10 @@ fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
         icmp_seq = icmp_seq + 1;
         thread::sleep(time::Duration::from_secs(1));
     }
+}
+
+fn calculate_rtt() {
+
 }
 
 fn handle_icmp_packet(
@@ -104,6 +114,7 @@ fn handle_icmp_packet(
                     echo_reply_packet.get_identifier(),
                     ttl
                 );
+
             }
             IcmpTypes::EchoRequest => {
                 let echo_request_packet = echo_request::EchoRequestPacket::new(packet).unwrap();
