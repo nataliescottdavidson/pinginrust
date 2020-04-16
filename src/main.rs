@@ -65,10 +65,11 @@ fn get_ip_from_raw_addr(raw_addr: &String) -> IpAddr {
 }
 
 fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
+    let mut icmp_seq = 0;
     loop {
         let mut buffer = [0u8; 42];
         let mut packet = MutableEchoRequestPacket::new(&mut buffer).unwrap();
-        packet.set_sequence_number(0);
+        packet.set_sequence_number(icmp_seq);
         packet.set_icmp_type(IcmpTypes::EchoRequest);
         packet.set_icmp_code(IcmpCode::new(0));
         let echo_checksum = checksum(&IcmpPacket::new(packet.packet()).unwrap());
@@ -78,23 +79,30 @@ fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
             Ok(_size) => (),
             Err(e) => println!("{:?}", e),
         }
+        icmp_seq = icmp_seq + 1;
         thread::sleep(time::Duration::from_secs(1));
     }
 }
 
-fn handle_icmp_packet(interface_name: &str, source: IpAddr, destination: IpAddr, packet: &[u8]) {
+fn handle_icmp_packet(
+    interface_name: &str,
+    source: IpAddr,
+    destination: IpAddr,
+    packet: &[u8],
+    ttl: u8,
+) {
     let icmp_packet = IcmpPacket::new(packet);
     if let Some(icmp_packet) = icmp_packet {
         match icmp_packet.get_icmp_type() {
             IcmpTypes::EchoReply => {
                 let echo_reply_packet = echo_reply::EchoReplyPacket::new(packet).unwrap();
                 println!(
-                    "[{}]: ICMP echo reply {} -> {} (seq={:?}, id={:?})",
+                    "[{}]: ICMP echo reply from {} (seq={:?}, id={:?}) ttl {}",
                     interface_name,
                     source,
-                    destination,
                     echo_reply_packet.get_sequence_number(),
-                    echo_reply_packet.get_identifier()
+                    echo_reply_packet.get_identifier(),
+                    ttl
                 );
             }
             IcmpTypes::EchoRequest => {
@@ -121,7 +129,7 @@ fn handle_icmp_packet(interface_name: &str, source: IpAddr, destination: IpAddr,
     }
 }
 
-fn handle_icmpv6_packet(interface_name: &str, source: IpAddr, destination: IpAddr, packet: &[u8]) {
+fn handle_icmpv6_packet(interface_name: &str, source: IpAddr, destination: IpAddr, packet: &[u8], ttl: u8) {
     let icmpv6_packet = Icmpv6Packet::new(packet);
     if let Some(icmpv6_packet) = icmpv6_packet {
         println!(
@@ -141,14 +149,15 @@ fn handle_transport_protocol(
     source: IpAddr,
     destination: IpAddr,
     protocol: IpNextHeaderProtocol,
+    ttl: u8,
     packet: &[u8],
 ) {
     match protocol {
         IpNextHeaderProtocols::Icmp => {
-            handle_icmp_packet(interface_name, source, destination, packet)
+            handle_icmp_packet(interface_name, source, destination, packet, ttl)
         }
         IpNextHeaderProtocols::Icmpv6 => {
-            handle_icmpv6_packet(interface_name, source, destination, packet)
+            handle_icmpv6_packet(interface_name, source, destination, packet, ttl)
         }
         _ => (),
     }
@@ -162,6 +171,7 @@ fn handle_ipv4_packet(interface_name: &str, ethernet: &EthernetPacket) {
             IpAddr::V4(header.get_source()),
             IpAddr::V4(header.get_destination()),
             header.get_next_level_protocol(),
+            header.get_ttl(),
             header.payload(),
         );
     } else {
@@ -177,6 +187,7 @@ fn handle_ipv6_packet(interface_name: &str, ethernet: &EthernetPacket) {
             IpAddr::V6(header.get_source()),
             IpAddr::V6(header.get_destination()),
             header.get_next_header(),
+            header.get_hop_limit(),
             header.payload(),
         );
     } else {
@@ -220,9 +231,10 @@ fn main() {
 
     let (_, mut rx) = match datalink::channel(&interface, Default::default()) {
         Ok(Ethernet(tx, rx)) => (tx, rx),
-        Ok(_) => panic!("packetdump: unhandled channel type: {}"),
-        Err(e) => panic!("packetdump: unable to create channel: {}", e),
+        Ok(_) => panic!("unhandled channel type: {}"),
+        Err(e) => panic!("unable to create channel: {}", e),
     };
+
     thread::spawn(move || send_echo_request(sender, ip_addr.clone()));
 
     loop {
