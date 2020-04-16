@@ -8,10 +8,11 @@ use pnet::packet::Packet;
 use pnet::transport::TransportSender;
 use pnet::transport::TransportChannelType::Layer4;
 use pnet::transport::TransportProtocol::Ipv4;
-use pnet::transport::transport_channel;
+use pnet::transport::{transport_channel, icmp_packet_iter};
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::icmp::echo_request::{MutableEchoRequestPacket};
 use pnet::packet::icmp::{IcmpCode, IcmpPacket, IcmpTypes, checksum};
+
 
 fn dns(domain : Domain) -> IpAddr {
     //Need to check for ipv4 vs v6
@@ -73,15 +74,27 @@ fn main() {
     let raw_addr = args[1].to_string().clone();
     let ip_addr = get_ip_from_raw_addr(&raw_addr);
 
-    let (sender, _) = match transport_channel(4096, Layer4(Ipv4(IpNextHeaderProtocols::Icmp))) {
+    let (sender, mut reciever) = match transport_channel(4096, Layer4(Ipv4(IpNextHeaderProtocols::Icmp))) {
         Ok((tx, rx)) => (tx, rx),
         Err(e) => panic!(
             "An error occurred when creating the transport channel: {}",
             e
         ),
     };
+
     send_echo_request(sender, ip_addr);
 
+    //transport_channel_iterator!(Packet, GenericPacketIter, packet_iter);
+    let mut iter = icmp_packet_iter(&mut reciever);
+    loop {
+        match iter.next() {
+            Ok((packet, addr)) => {
+                println!("IPaddr {}", addr);
+                println!("packet {:?}", packet);
+            }
+            Err(e) => panic!("unable to receive packet: {}", e),
+        }
+    }
 }
 
 
