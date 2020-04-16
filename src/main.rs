@@ -1,51 +1,51 @@
-use std::env;
-use std::io::{self, Write};
-use std::process;
-use std::{thread, time};
-use std::net::IpAddr;
-use validators::ValidatorOption;
-use validators::ipv4::{IPv4Validator};
-use validators::domain::{Domain, DomainValidator};
 use dns_lookup::lookup_host;
-use pnet::packet::Packet;
-use pnet::transport::TransportSender;
-use pnet::transport::TransportChannelType::Layer4;
-use pnet::transport::TransportProtocol::Ipv4;
-use pnet::transport::transport_channel;
-use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::icmp::echo_request::{MutableEchoRequestPacket};
-use pnet::packet::icmp::{IcmpCode, IcmpPacket, IcmpTypes, checksum};
-use pnet::datalink::{self, NetworkInterface};
 use pnet::datalink::interfaces;
 use pnet::datalink::Channel::Ethernet;
+use pnet::datalink::{self, NetworkInterface};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
+use pnet::packet::icmp::echo_request::MutableEchoRequestPacket;
+use pnet::packet::icmp::{checksum, IcmpCode, IcmpPacket, IcmpTypes};
 use pnet::packet::icmp::{echo_reply, echo_request};
 use pnet::packet::icmpv6::Icmpv6Packet;
-use pnet::packet::ip::{IpNextHeaderProtocol};
+use pnet::packet::ip::IpNextHeaderProtocol;
+use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::ipv6::Ipv6Packet;
+use pnet::packet::Packet;
+use pnet::transport::transport_channel;
+use pnet::transport::TransportChannelType::Layer4;
+use pnet::transport::TransportProtocol::Ipv4;
+use pnet::transport::TransportSender;
 use pnet::util::MacAddr;
+use std::env;
+use std::io::{self, Write};
+use std::net::IpAddr;
+use std::process;
+use std::{thread, time};
+use validators::domain::{Domain, DomainValidator};
+use validators::ipv4::IPv4Validator;
+use validators::ValidatorOption;
 
-fn dns(domain : Domain) -> IpAddr {
+fn dns(domain: Domain) -> IpAddr {
     //Need to check for ipv4 vs v6
     match lookup_host(domain.get_full_domain()) {
         Ok(ips) => {
             println!("{:?}", ips);
             ips[0]
-        },
-        Err(_) => panic!("DNS lookup did not resolve")
-     }
+        }
+        Err(_) => panic!("DNS lookup did not resolve"),
+    }
 }
 
-fn get_ip_from_raw_addr(raw_addr : &String) -> IpAddr {
+fn get_ip_from_raw_addr(raw_addr: &String) -> IpAddr {
     let ipv4 = IPv4Validator {
         port: ValidatorOption::NotAllow,
         local: ValidatorOption::NotAllow,
-        ipv6: ValidatorOption::Allow
+        ipv6: ValidatorOption::Allow,
     };
     let domain = DomainValidator {
         port: ValidatorOption::NotAllow,
-        localhost: ValidatorOption::NotAllow
+        localhost: ValidatorOption::NotAllow,
     };
 
     match ipv4.parse_string(raw_addr.clone()) {
@@ -59,12 +59,12 @@ fn get_ip_from_raw_addr(raw_addr : &String) -> IpAddr {
                 //assert_eq!(raw_addr, domain.get_full_domain());
                 dns(domain)
             }
-            Err(_) => panic!("Not valid ip or hostname")
-        }
+            Err(_) => panic!("Not valid ip or hostname"),
+        },
     }
 }
 
-fn send_echo_request(mut sender : TransportSender, ip_addr : IpAddr) {
+fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
     loop {
         let mut buffer = [0u8; 42];
         let mut packet = MutableEchoRequestPacket::new(&mut buffer).unwrap();
@@ -76,11 +76,10 @@ fn send_echo_request(mut sender : TransportSender, ip_addr : IpAddr) {
 
         match sender.send_to(packet, ip_addr) {
             Ok(_size) => (),
-            Err(e) => println!("{:?}", e)
+            Err(e) => println!("{:?}", e),
         }
         thread::sleep(time::Duration::from_secs(1));
-}
-
+    }
 }
 
 fn handle_icmp_packet(interface_name: &str, source: IpAddr, destination: IpAddr, packet: &[u8]) {
@@ -151,7 +150,7 @@ fn handle_transport_protocol(
         IpNextHeaderProtocols::Icmpv6 => {
             handle_icmpv6_packet(interface_name, source, destination, packet)
         }
-        _ => ()
+        _ => (),
     }
 }
 
@@ -190,7 +189,7 @@ fn handle_ethernet_frame(interface: &NetworkInterface, ethernet: &EthernetPacket
     match ethernet.get_ethertype() {
         EtherTypes::Ipv4 => handle_ipv4_packet(interface_name, ethernet),
         EtherTypes::Ipv6 => handle_ipv6_packet(interface_name, ethernet),
-        _ => ()
+        _ => (),
     }
 }
 
@@ -214,17 +213,17 @@ fn main() {
 
     let interfaces = datalink::interfaces();
     let interface = interfaces
-         .into_iter()
-         .filter(|e| e.is_up() && !e.is_loopback() && e.ips.len() > 0)
-         .next()
-         .unwrap_or_else(|| panic!("No such network interface"));
+        .into_iter()
+        .filter(|e| e.is_up() && !e.is_loopback() && e.ips.len() > 0)
+        .next()
+        .unwrap_or_else(|| panic!("No such network interface"));
 
     let (_, mut rx) = match datalink::channel(&interface, Default::default()) {
         Ok(Ethernet(tx, rx)) => (tx, rx),
         Ok(_) => panic!("packetdump: unhandled channel type: {}"),
         Err(e) => panic!("packetdump: unable to create channel: {}", e),
     };
-    thread::spawn(move||send_echo_request(sender, ip_addr.clone()));
+    thread::spawn(move || send_echo_request(sender, ip_addr.clone()));
 
     loop {
         let mut buf: [u8; 1600] = [0u8; 1600];
@@ -232,23 +231,23 @@ fn main() {
         match rx.next() {
             Ok(packet) => {
                 let payload_offset;
-                if cfg!(target_os = "macos") && interface.is_up() && !interface.is_broadcast()
+                if cfg!(target_os = "macos")
+                    && interface.is_up()
+                    && !interface.is_broadcast()
                     && ((!interface.is_loopback() && interface.is_point_to_point())
-                         || interface.is_loopback())
+                        || interface.is_loopback())
                 {
-                    if interface.is_loopback()
-                    {
+                    if interface.is_loopback() {
                         // The pnet code for BPF loopback adds a zero'd out Ethernet header
                         payload_offset = 14;
-                    }
-                    else
-                    {
+                    } else {
                         // Maybe is TUN interface
                         payload_offset = 0;
                     }
-                    if packet.len() > payload_offset
-                    {
-                        let version = Ipv4Packet::new(&packet[payload_offset..]).unwrap().get_version();
+                    if packet.len() > payload_offset {
+                        let version = Ipv4Packet::new(&packet[payload_offset..])
+                            .unwrap()
+                            .get_version();
                         if version == 4 {
                             fake_ethernet_frame.set_destination(MacAddr(0, 0, 0, 0, 0, 0));
                             fake_ethernet_frame.set_source(MacAddr(0, 0, 0, 0, 0, 0));
@@ -268,11 +267,7 @@ fn main() {
                 }
                 handle_ethernet_frame(&interface, &EthernetPacket::new(packet).unwrap());
             }
-            Err(e) => panic!("ping: unable to receive packet: {}", e),
+            Err(e) => panic!("Unable to receive packet: {}", e),
         }
     }
-
 }
-
-
-
