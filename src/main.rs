@@ -1,4 +1,6 @@
 use std::env;
+use std::io::{self, Write};
+use std::process;
 use std::net::IpAddr;
 use validators::ValidatorOption;
 use validators::ipv4::{IPv4Validator};
@@ -12,6 +14,7 @@ use pnet::transport::{transport_channel, icmp_packet_iter};
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::icmp::echo_request::{MutableEchoRequestPacket};
 use pnet::packet::icmp::{IcmpCode, IcmpPacket, IcmpTypes, checksum};
+use pnet::datalink::{self, NetworkInterface};
 
 
 fn dns(domain : Domain) -> IpAddr {
@@ -26,7 +29,6 @@ fn dns(domain : Domain) -> IpAddr {
 }
 
 fn get_ip_from_raw_addr(raw_addr : &String) -> IpAddr {
-
     let ipv4 = IPv4Validator {
         port: ValidatorOption::NotAllow,
         local: ValidatorOption::NotAllow,
@@ -70,8 +72,32 @@ fn send_echo_request(mut sender : TransportSender, ip_addr : IpAddr) {
 
 fn main() {
 
-    let args: Vec<String> = env::args().collect();
-    let raw_addr = args[1].to_string().clone();
+    let iface_name = match env::args().nth(1) {
+        Some(n) => n,
+        None => {
+            writeln!(io::stderr(), "USAGE: ping <NETWORK INTERFACE> <VALID IP OR HOSTNAME>").unwrap();
+            process::exit(1);
+        }
+    };
+    let interface_names_match = |iface: &NetworkInterface| iface.name == iface_name;
+
+    // Find the network interface with the provided name
+    let interfaces = datalink::interfaces();
+    let interface = interfaces
+        .into_iter()
+        .filter(interface_names_match)
+        .next()
+        .unwrap_or_else(|| panic!("No such network interface: {}", iface_name));
+
+
+    let raw_addr = match env::args().nth(2) {
+        Some(n) => n,
+        None => {
+            writeln!(io::stderr(), "USAGE: ping <NETWORK INTERFACE> <VALID IP OR HOSTNAME>").unwrap();
+            process::exit(1);
+        }
+    };
+
     let ip_addr = get_ip_from_raw_addr(&raw_addr);
 
     let (sender, mut reciever) = match transport_channel(4096, Layer4(Ipv4(IpNextHeaderProtocols::Icmp))) {
@@ -84,17 +110,6 @@ fn main() {
 
     send_echo_request(sender, ip_addr);
 
-    //transport_channel_iterator!(Packet, GenericPacketIter, packet_iter);
-    let mut iter = icmp_packet_iter(&mut reciever);
-    loop {
-        match iter.next() {
-            Ok((packet, addr)) => {
-                println!("IPaddr {}", addr);
-                println!("packet {:?}", packet);
-            }
-            Err(e) => panic!("unable to receive packet: {}", e),
-        }
-    }
 }
 
 
