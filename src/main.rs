@@ -15,6 +15,7 @@ use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::icmp::echo_request::{MutableEchoRequestPacket};
 use pnet::packet::icmp::{IcmpCode, IcmpPacket, IcmpTypes, checksum};
 use pnet::datalink::{self, NetworkInterface};
+use pnet::datalink::interfaces;
 use pnet::datalink::Channel::Ethernet;
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
 use pnet::packet::icmp::{echo_reply, echo_request};
@@ -189,33 +190,13 @@ fn handle_ethernet_frame(interface: &NetworkInterface, ethernet: &EthernetPacket
 }
 
 fn main() {
-
-    let iface_name = match env::args().nth(1) {
+    let raw_addr = match env::args().nth(1) {
         Some(n) => n,
         None => {
-            writeln!(io::stderr(), "USAGE: ping <NETWORK INTERFACE> <VALID IP OR HOSTNAME>").unwrap();
+            writeln!(io::stderr(), "USAGE: ping <VALID IP OR HOSTNAME>").unwrap();
             process::exit(1);
         }
     };
-    let interface_names_match = |iface: &NetworkInterface| iface.name == iface_name;
-
-    // Find the network interface with the provided name
-    let interfaces = datalink::interfaces();
-    let interface = interfaces
-        .into_iter()
-        .filter(interface_names_match)
-        .next()
-        .unwrap_or_else(|| panic!("No such network interface: {}", iface_name));
-
-
-    let raw_addr = match env::args().nth(2) {
-        Some(n) => n,
-        None => {
-            writeln!(io::stderr(), "USAGE: ping <NETWORK INTERFACE> <VALID IP OR HOSTNAME>").unwrap();
-            process::exit(1);
-        }
-    };
-
     let ip_addr = get_ip_from_raw_addr(&raw_addr);
 
     let (sender, _) = match transport_channel(4096, Layer4(Ipv4(IpNextHeaderProtocols::Icmp))) {
@@ -225,8 +206,14 @@ fn main() {
             e
         ),
     };
+    
+    let interfaces = datalink::interfaces();
+    let interface = interfaces
+         .into_iter()
+         .filter(|e| e.is_up() && !e.is_loopback() && e.ips.len() > 0)
+         .next()
+         .unwrap_or_else(|| panic!("No such network interface"));
 
-    // Create a channel to receive on
     let (_, mut rx) = match datalink::channel(&interface, Default::default()) {
         Ok(Ethernet(tx, rx)) => (tx, rx),
         Ok(_) => panic!("packetdump: unhandled channel type: {}"),
