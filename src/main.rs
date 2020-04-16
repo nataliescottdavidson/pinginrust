@@ -13,17 +13,18 @@ use pnet_packet::icmp::{Icmp, IcmpType, IcmpCode};
 
 extern crate pnet_datalink;
 
-fn dns(domain : Domain) {
+fn dns(domain : Domain) -> IpAddr {
     match lookup_host(domain.get_full_domain()) {
         Ok(ips) => {
             println!("{:?}", ips);
-        }
+            ips[0]
+        },
         Err(_) => panic!("DNS lookup did not resolve")
      }
 
 }
 
-fn get_ip_from_raw_addr(raw_addr : &String) -> &Ipv4Addr {
+fn get_ip_from_raw_addr(raw_addr : &String) -> IpAddr {
 
     let ipv4 = IPv4Validator {
         port: ValidatorOption::NotAllow,
@@ -42,7 +43,8 @@ fn get_ip_from_raw_addr(raw_addr : &String) -> &Ipv4Addr {
     match ipv4.parse_string(raw_addr.clone()) {
         Ok(ipv4_addr) => {
             assert_eq!(raw_addr, ipv4_addr.get_full_ipv4());
-            ipv4_addr.get_ipv4_address()
+            let ip_addr = std::net::IpAddr::V4(*ipv4_addr.get_ipv4_address());
+            ip_addr
         }
         Err(_) => match domain.parse_string(raw_addr.clone()) {
             Ok(domain) => {
@@ -60,7 +62,7 @@ fn main() {
    
     let raw_addr = args[1].to_string().clone();
 
-    let ip_addr = IpAddr::V4(*get_ip_from_raw_addr(&raw_addr));
+    let ip_addr = get_ip_from_raw_addr(&raw_addr);
 
 
     // Create a new transport channel, dealing with layer 4 packets on a test protocol
@@ -82,7 +84,6 @@ fn main() {
         payload : vec
     };
 
-    sender.send_to(packet, ip_addr);
 
 
 }
