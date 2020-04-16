@@ -218,10 +218,11 @@ fn main() {
     let raw_addr = match env::args().nth(1) {
         Some(n) => n,
         None => {
-            writeln!(io::stderr(), "USAGE: ping <VALID IP OR HOSTNAME>").unwrap();
+            writeln!(io::stderr(), "USAGE: ping <VALID IP OR HOSTNAME> [<NETWORK INTERFACE>]").unwrap();
             process::exit(1);
         }
     };
+
     let ip_addr = get_ip_from_raw_addr(&raw_addr);
 
     let (sender, _) = match transport_channel(4096, Layer4(Ipv4(IpNextHeaderProtocols::Icmp))) {
@@ -230,17 +231,35 @@ fn main() {
             "An error occurred when creating the transport channel: {}", e),
     };
 
-    let interfaces = datalink::interfaces();
-    let interface = interfaces
+    let mut interfaces = datalink::interfaces()
         .into_iter()
-        .filter(|e| e.is_up() && !e.is_loopback() && e.ips.len() > 0)
-        .next()
-        .unwrap_or_else(|| panic!("No such network interface"));
+        .filter(|e| e.is_up() && !e.is_loopback() && e.ips.len() > 0);
 
+    let interface = match env::args().nth(2) {
+        Some(n) => {
+            let interface_names_match = |iface: &NetworkInterface| iface.name == n;
+            interfaces
+                .filter(interface_names_match)
+                .next()
+                .unwrap_or_else(|| panic!("Argument {} does not match any valid interface", n))
+        },
+        None => {
+            interfaces
+                .next()
+                .unwrap_or_else(|| panic!("No valid network interface"))
+        },
+
+    };
+
+
+    println!("interface {}", interface);
     let (_, mut rx) = match datalink::channel(&interface, Default::default()) {
         Ok(Ethernet(tx, rx)) => (tx, rx),
         Ok(_) => panic!("unhandled channel type: {}"),
-        Err(e) => panic!("unable to create channel: {}", e),
+        Err(e) => {
+            writeln!(io::stderr(), "Default network interface selection failed. Please specify interface.").unwrap();
+            process::exit(1);
+        }
     };
 
     thread::spawn(move || send_echo_request(sender, ip_addr.clone()));
