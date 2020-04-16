@@ -4,6 +4,11 @@ use validators::ipv4::{IPv4Validator};
 use validators::domain::{Domain, DomainValidator};
 use dns_lookup::lookup_host;
 use pnet::packet::{MutablePacket, Packet};
+use pnet::transport::TransportChannelType::Layer3;
+use pnet::transport::TransportProtocol::Ipv4;
+use pnet::transport::transport_channel;
+use pnet_packet::ip::IpNextHeaderProtocols;
+
 extern crate pnet_datalink;
 
 fn dns(domain : Domain) {
@@ -43,6 +48,18 @@ fn main() {
             Err(_) => println!("Not valid ip or hostname")
         }
     }
+
+    // Create a new transport channel, dealing with layer 4 packets on a test protocol
+    // It has a receive buffer of 4096 bytes.
+    let (mut tx, mut rx) = match transport_channel(4096, Layer3(IpNextHeaderProtocols::Icmp)) {
+        Ok((tx, rx)) => (tx, rx),
+        Err(e) => panic!(
+            "An error occurred when creating the transport channel: {}",
+            e
+        ),
+    };
+
+    
 }
 
 
