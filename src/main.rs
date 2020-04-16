@@ -28,10 +28,8 @@ use validators::ValidatorOption;
 use bincode::{serialize, deserialize};
 
 fn dns(domain: Domain) -> IpAddr {
-    //Need to check for ipv4 vs v6
     match lookup_host(domain.get_full_domain()) {
         Ok(ips) => {
-            println!("{:?}", ips);
             ips[0]
         }
         Err(_) => panic!("DNS lookup did not resolve"),
@@ -85,13 +83,23 @@ fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
             Ok(_size) => (),
             Err(e) => println!("{:?}", e),
         }
+        unsafe {
+            seq_time_map.push(time::SystemTime::now());
+        }
         icmp_seq = icmp_seq + 1;
         thread::sleep(time::Duration::from_secs(1));
     }
 }
 
-fn calculate_rtt() {
-
+fn calculate_rtt(icmp_seq : u16) -> time::Duration {
+    let index = icmp_seq as usize;
+    unsafe {
+        let request_time = seq_time_map[index];
+        match time::SystemTime::now().duration_since(request_time) {
+            Ok(n) => n,
+            Err(_) => panic!("Failed to determine duration")
+        }
+    }
 }
 
 fn handle_icmp_packet(
@@ -106,41 +114,17 @@ fn handle_icmp_packet(
         match icmp_packet.get_icmp_type() {
             IcmpTypes::EchoReply => {
                 let echo_reply_packet = echo_reply::EchoReplyPacket::new(packet).unwrap();
-                let decoded : time::SystemTime = match deserialize(echo_reply_packet.payload()) {
-                    Ok(timestamp) => {
-                        println!("time {:?}", timestamp);
-                        timestamp
-                    },
-                    Err(_) => panic!("Couldn't deserialize")
-                };
+                let rtt = calculate_rtt(echo_reply_packet.get_sequence_number());
                 println!(
-                    "[{}]: ICMP echo reply from {} (seq={:?}, id={:?}) ttl {} timestamp {:?}",
-                    interface_name,
+                    " x bytes from {}: icmp_seq={:?} ttl={} time={:?}.{} ms",
                     source,
                     echo_reply_packet.get_sequence_number(),
-                    echo_reply_packet.get_identifier(),
                     ttl,
-                    decoded,
+                    rtt.as_millis(),
+                    rtt.as_nanos(),
                 );
-            }
-            IcmpTypes::EchoRequest => {
-                let echo_request_packet = echo_request::EchoRequestPacket::new(packet).unwrap();
-                println!(
-                    "[{}]: ICMP echo request {} -> {} (seq={:?}, id={:?})",
-                    interface_name,
-                    source,
-                    destination,
-                    echo_request_packet.get_sequence_number(),
-                    echo_request_packet.get_identifier()
-                );
-            }
-            _ => println!(
-                "[{}]: ICMP packet {} -> {} (type={:?})",
-                interface_name,
-                source,
-                destination,
-                icmp_packet.get_icmp_type()
-            ),
+            },
+            _ => (),
         }
     } else {
         println!("[{}]: Malformed ICMP Packet", interface_name);
@@ -222,6 +206,8 @@ fn handle_ethernet_frame(interface: &NetworkInterface, ethernet: &EthernetPacket
     }
 }
 
+static mut seq_time_map : Vec<time::SystemTime> = Vec::new();
+
 fn main() {
     let raw_addr = match env::args().nth(1) {
         Some(n) => n,
@@ -235,9 +221,7 @@ fn main() {
     let (sender, _) = match transport_channel(4096, Layer4(Ipv4(IpNextHeaderProtocols::Icmp))) {
         Ok((tx, rx)) => (tx, rx),
         Err(e) => panic!(
-            "An error occurred when creating the transport channel: {}",
-            e
-        ),
+            "An error occurred when creating the transport channel: {}", e),
     };
 
     let interfaces = datalink::interfaces();
