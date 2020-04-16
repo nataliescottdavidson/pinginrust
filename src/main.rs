@@ -1,6 +1,7 @@
 use std::env;
 use std::io::{self, Write};
 use std::process;
+use std::{thread, time};
 use std::net::IpAddr;
 use validators::ValidatorOption;
 use validators::ipv4::{IPv4Validator};
@@ -64,18 +65,22 @@ fn get_ip_from_raw_addr(raw_addr : &String) -> IpAddr {
 }
 
 fn send_echo_request(mut sender : TransportSender, ip_addr : IpAddr) {
-    let mut buffer = [0u8; 42];
-    let mut packet = MutableEchoRequestPacket::new(&mut buffer).unwrap();
-    packet.set_sequence_number(0);
-    packet.set_icmp_type(IcmpTypes::EchoRequest);
-    packet.set_icmp_code(IcmpCode::new(0));
-    let echo_checksum = checksum(&IcmpPacket::new(packet.packet()).unwrap());
-    packet.set_checksum(echo_checksum);
+    loop {
+        let mut buffer = [0u8; 42];
+        let mut packet = MutableEchoRequestPacket::new(&mut buffer).unwrap();
+        packet.set_sequence_number(0);
+        packet.set_icmp_type(IcmpTypes::EchoRequest);
+        packet.set_icmp_code(IcmpCode::new(0));
+        let echo_checksum = checksum(&IcmpPacket::new(packet.packet()).unwrap());
+        packet.set_checksum(echo_checksum);
 
-    match sender.send_to(packet, ip_addr) {
-        Ok(_size) => println!("Sent successfully"),
-        Err(e) => println!("{:?}", e)
-    }
+        match sender.send_to(packet, ip_addr) {
+            Ok(_size) => (),
+            Err(e) => println!("{:?}", e)
+        }
+        thread::sleep(time::Duration::from_secs(1));
+}
+
 }
 
 fn handle_icmp_packet(interface_name: &str, source: IpAddr, destination: IpAddr, packet: &[u8]) {
@@ -206,7 +211,7 @@ fn main() {
             e
         ),
     };
-    
+
     let interfaces = datalink::interfaces();
     let interface = interfaces
          .into_iter()
@@ -219,8 +224,7 @@ fn main() {
         Ok(_) => panic!("packetdump: unhandled channel type: {}"),
         Err(e) => panic!("packetdump: unable to create channel: {}", e),
     };
-
-    send_echo_request(sender, ip_addr.clone());
+    thread::spawn(move||send_echo_request(sender, ip_addr.clone()));
 
     loop {
         let mut buf: [u8; 1600] = [0u8; 1600];
@@ -264,7 +268,7 @@ fn main() {
                 }
                 handle_ethernet_frame(&interface, &EthernetPacket::new(packet).unwrap());
             }
-            Err(e) => panic!("packetdump: unable to receive packet: {}", e),
+            Err(e) => panic!("ping: unable to receive packet: {}", e),
         }
     }
 
