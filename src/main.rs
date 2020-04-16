@@ -25,7 +25,7 @@ use std::{thread, time};
 use validators::domain::{Domain, DomainValidator};
 use validators::ipv4::IPv4Validator;
 use validators::ValidatorOption;
-use bincode;
+use bincode::{serialize, deserialize};
 
 fn dns(domain: Domain) -> IpAddr {
     //Need to check for ipv4 vs v6
@@ -71,8 +71,8 @@ fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
         let mut buffer = [0u8; 42];
         let mut packet = MutableEchoRequestPacket::new(&mut buffer).unwrap();
         let target: Option<time::SystemTime>  = Some(time::SystemTime::now());
-        let encoded: Vec<u8> = bincode::serialize(&target).unwrap();
-        let decoded: Option<time::SystemTime> = bincode::deserialize(&encoded[..]).unwrap();
+        let encoded: Vec<u8> = serialize(&target).unwrap();
+        let decoded: Option<time::SystemTime> = deserialize(&encoded[..]).unwrap();
         assert_eq!(target, decoded);
 
         packet.set_sequence_number(icmp_seq);
@@ -80,7 +80,7 @@ fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
         packet.set_icmp_code(IcmpCode::new(0));
         let echo_checksum = checksum(&IcmpPacket::new(packet.packet()).unwrap());
         packet.set_checksum(echo_checksum);
-        packet.set_payload(&encoded);
+        //packet.set_payload(&encoded);
         match sender.send_to(packet, ip_addr) {
             Ok(_size) => (),
             Err(e) => println!("{:?}", e),
@@ -106,15 +106,22 @@ fn handle_icmp_packet(
         match icmp_packet.get_icmp_type() {
             IcmpTypes::EchoReply => {
                 let echo_reply_packet = echo_reply::EchoReplyPacket::new(packet).unwrap();
+                let decoded : time::SystemTime = match deserialize(echo_reply_packet.payload()) {
+                    Ok(timestamp) => {
+                        println!("time {:?}", timestamp);
+                        timestamp
+                    },
+                    Err(_) => panic!("Couldn't deserialize")
+                };
                 println!(
-                    "[{}]: ICMP echo reply from {} (seq={:?}, id={:?}) ttl {}",
+                    "[{}]: ICMP echo reply from {} (seq={:?}, id={:?}) ttl {} timestamp {:?}",
                     interface_name,
                     source,
                     echo_reply_packet.get_sequence_number(),
                     echo_reply_packet.get_identifier(),
-                    ttl
+                    ttl,
+                    decoded,
                 );
-
             }
             IcmpTypes::EchoRequest => {
                 let echo_request_packet = echo_request::EchoRequestPacket::new(packet).unwrap();
