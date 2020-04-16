@@ -9,4 +9,6 @@ Reference implementation didn't work on mac. Set up on digitialocean and was suc
 Completed pattern match logic using Haskell style case statement. Feeling pretty good for a Rust newbie!
 
 
+4/16/20
 
+Managed to send an echo request packet which showed up on wireshark!! yay!! might need to go down a level of abstraction to get the replies though
