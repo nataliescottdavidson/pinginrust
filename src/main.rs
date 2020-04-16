@@ -6,7 +6,7 @@ use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
 use pnet::packet::icmp::echo_request::MutableEchoRequestPacket;
 use pnet::packet::icmp::{checksum, IcmpCode, IcmpPacket, IcmpTypes};
 use pnet::packet::icmp::{echo_reply, echo_request};
-use pnet::packet::icmpv6::Icmpv6Packet;
+use pnet::packet::icmpv6::{Icmpv6Packet, Icmpv6Types};
 use pnet::packet::ip::IpNextHeaderProtocol;
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::Ipv4Packet;
@@ -137,13 +137,22 @@ fn handle_icmp_packet(
 fn handle_icmpv6_packet(interface_name: &str, source: IpAddr, destination: IpAddr, packet: &[u8], ttl: u8, packet_size: usize) {
     let icmpv6_packet = Icmpv6Packet::new(packet);
     if let Some(icmpv6_packet) = icmpv6_packet {
-        println!(
-            "[{}]: ICMPv6 packet {} -> {} (type={:?})",
-            interface_name,
-            source,
-            destination,
-            icmpv6_packet.get_icmpv6_type()
-        )
+        match icmpv6_packet.get_icmpv6_type() {
+            Icmpv6Types::EchoReply => {
+                let echo_reply_packet = echo_reply::EchoReplyPacket::new(packet).unwrap();
+                let rtt = calculate_rtt(echo_reply_packet.get_sequence_number());
+                println!(
+                    "{} bytes from {}: icmp_seq={:?} ttl={} time={:?}.{} ms",
+                    packet_size,
+                    source,
+                    echo_reply_packet.get_sequence_number(),
+                    ttl,
+                    rtt.as_millis(),
+                    rtt.as_nanos(),
+                );
+            },
+            _ => (),
+        }
     } else {
         println!("[{}]: Malformed ICMPv6 Packet", interface_name);
     }
