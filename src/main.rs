@@ -26,6 +26,7 @@ use validators::domain::{Domain, DomainValidator};
 use validators::ipv4::IPv4Validator;
 use validators::ValidatorOption;
 use bincode::{serialize, deserialize};
+use pnet_macros_support::packet::FromPacket;
 
 fn dns(domain: Domain) -> IpAddr {
     match lookup_host(domain.get_full_domain()) {
@@ -108,6 +109,7 @@ fn handle_icmp_packet(
     destination: IpAddr,
     packet: &[u8],
     ttl: u8,
+    packet_size: usize
 ) {
     let icmp_packet = IcmpPacket::new(packet);
     if let Some(icmp_packet) = icmp_packet {
@@ -116,7 +118,8 @@ fn handle_icmp_packet(
                 let echo_reply_packet = echo_reply::EchoReplyPacket::new(packet).unwrap();
                 let rtt = calculate_rtt(echo_reply_packet.get_sequence_number());
                 println!(
-                    " x bytes from {}: icmp_seq={:?} ttl={} time={:?}.{} ms",
+                    "{} bytes from {}: icmp_seq={:?} ttl={} time={:?}.{} ms",
+                    packet_size,
                     source,
                     echo_reply_packet.get_sequence_number(),
                     ttl,
@@ -131,7 +134,7 @@ fn handle_icmp_packet(
     }
 }
 
-fn handle_icmpv6_packet(interface_name: &str, source: IpAddr, destination: IpAddr, packet: &[u8], ttl: u8) {
+fn handle_icmpv6_packet(interface_name: &str, source: IpAddr, destination: IpAddr, packet: &[u8], ttl: u8, packet_size: usize) {
     let icmpv6_packet = Icmpv6Packet::new(packet);
     if let Some(icmpv6_packet) = icmpv6_packet {
         println!(
@@ -152,14 +155,15 @@ fn handle_transport_protocol(
     destination: IpAddr,
     protocol: IpNextHeaderProtocol,
     ttl: u8,
+    packet_size: usize,
     packet: &[u8],
 ) {
     match protocol {
         IpNextHeaderProtocols::Icmp => {
-            handle_icmp_packet(interface_name, source, destination, packet, ttl)
+            handle_icmp_packet(interface_name, source, destination, packet, ttl, packet_size)
         }
         IpNextHeaderProtocols::Icmpv6 => {
-            handle_icmpv6_packet(interface_name, source, destination, packet, ttl)
+            handle_icmpv6_packet(interface_name, source, destination, packet, ttl, packet_size)
         }
         _ => (),
     }
@@ -174,6 +178,7 @@ fn handle_ipv4_packet(interface_name: &str, ethernet: &EthernetPacket) {
             IpAddr::V4(header.get_destination()),
             header.get_next_level_protocol(),
             header.get_ttl(),
+            Ipv4Packet::packet_size(&header.from_packet()),
             header.payload(),
         );
     } else {
@@ -190,6 +195,7 @@ fn handle_ipv6_packet(interface_name: &str, ethernet: &EthernetPacket) {
             IpAddr::V6(header.get_destination()),
             header.get_next_header(),
             header.get_hop_limit(),
+            Ipv6Packet::packet_size(&header.from_packet()),
             header.payload(),
         );
     } else {
