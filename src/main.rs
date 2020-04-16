@@ -5,6 +5,7 @@ use validators::ipv4::{IPv4Validator};
 use validators::domain::{Domain, DomainValidator};
 use dns_lookup::lookup_host;
 use pnet::packet::Packet;
+use pnet::transport::TransportSender;
 use pnet::transport::TransportChannelType::Layer4;
 use pnet::transport::TransportProtocol::Ipv4;
 use pnet::transport::transport_channel;
@@ -13,6 +14,7 @@ use pnet::packet::icmp::echo_request::{MutableEchoRequestPacket};
 use pnet::packet::icmp::{IcmpCode, IcmpPacket, IcmpTypes, checksum};
 
 fn dns(domain : Domain) -> IpAddr {
+    //Need to check for ipv4 vs v6
     match lookup_host(domain.get_full_domain()) {
         Ok(ips) => {
             println!("{:?}", ips);
@@ -20,7 +22,6 @@ fn dns(domain : Domain) -> IpAddr {
         },
         Err(_) => panic!("DNS lookup did not resolve")
      }
-
 }
 
 fn get_ip_from_raw_addr(raw_addr : &String) -> IpAddr {
@@ -45,26 +46,13 @@ fn get_ip_from_raw_addr(raw_addr : &String) -> IpAddr {
             Ok(domain) => {
                 //assert_eq!(raw_addr, domain.get_full_domain());
                 dns(domain)
-
             }
             Err(_) => panic!("Not valid ip or hostname")
         }
     }
 }
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    let raw_addr = args[1].to_string().clone();
-    let ip_addr = get_ip_from_raw_addr(&raw_addr);
-
-    let (mut sender, _) = match transport_channel(4096, Layer4(Ipv4(IpNextHeaderProtocols::Icmp))) {
-        Ok((tx, rx)) => (tx, rx),
-        Err(e) => panic!(
-            "An error occurred when creating the transport channel: {}",
-            e
-        ),
-    };
-
+fn send_echo_request(mut sender : TransportSender, ip_addr : IpAddr) {
     let mut buffer = [0u8; 42];
     let mut packet = MutableEchoRequestPacket::new(&mut buffer).unwrap();
     packet.set_sequence_number(0);
@@ -77,6 +65,22 @@ fn main() {
         Ok(_size) => println!("Sent successfully"),
         Err(e) => println!("{:?}", e)
     }
+}
+
+fn main() {
+
+    let args: Vec<String> = env::args().collect();
+    let raw_addr = args[1].to_string().clone();
+    let ip_addr = get_ip_from_raw_addr(&raw_addr);
+
+    let (sender, _) = match transport_channel(4096, Layer4(Ipv4(IpNextHeaderProtocols::Icmp))) {
+        Ok((tx, rx)) => (tx, rx),
+        Err(e) => panic!(
+            "An error occurred when creating the transport channel: {}",
+            e
+        ),
+    };
+    send_echo_request(sender, ip_addr);
 
 }
 
