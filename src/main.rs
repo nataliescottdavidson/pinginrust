@@ -1,41 +1,36 @@
+use bincode::{deserialize, serialize};
 use dns_lookup::lookup_host;
-use pnet::datalink::Channel::Ethernet;
-use pnet::datalink::{self, NetworkInterface};
+use pnet::datalink::{self, Channel::Ethernet, NetworkInterface};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
-use pnet::packet::icmp::echo_request::MutableEchoRequestPacket;
-use pnet::packet::icmp::{checksum, IcmpCode, IcmpPacket, IcmpTypes};
-use pnet::packet::icmp::echo_reply;
+use pnet::packet::icmp::{
+    checksum, echo_reply, echo_request::MutableEchoRequestPacket, IcmpCode, IcmpPacket, IcmpTypes,
+};
 use pnet::packet::icmpv6::{Icmpv6Packet, Icmpv6Types};
-use pnet::packet::ip::IpNextHeaderProtocol;
-use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::ipv6::Ipv6Packet;
-use pnet::packet::Packet;
-use pnet::transport::transport_channel;
-use pnet::transport::TransportChannelType::Layer4;
-use pnet::transport::TransportProtocol::Ipv4;
-use pnet::transport::TransportSender;
+use pnet::packet::ip::{IpNextHeaderProtocol, IpNextHeaderProtocols};
+use pnet::packet::{ipv4::Ipv4Packet, ipv6::Ipv6Packet, Packet};
+use pnet::transport::{
+    transport_channel, TransportChannelType::Layer4, TransportProtocol::Ipv4, TransportSender,
+};
 use pnet::util::MacAddr;
+use pnet_macros_support::packet::FromPacket;
 use std::env;
 use std::io::{self, Write};
 use std::net::IpAddr;
 use std::process;
 use std::{thread, time};
-use validators::domain::{Domain, DomainValidator};
-use validators::ipv4::IPv4Validator;
-use validators::ValidatorOption;
-use bincode::{serialize, deserialize};
-use pnet_macros_support::packet::FromPacket;
+use validators::{
+    domain::{Domain, DomainValidator},
+    ipv4::IPv4Validator,
+    ValidatorOption,
+};
 
-static mut SEQ_TIME_MAP : Vec<time::SystemTime> = Vec::new();
-static mut REQUESTS_SENT : u16 = 0;
-static mut REPLIES_RECVD : u16 = 0;
+static mut SEQ_TIME_MAP: Vec<time::SystemTime> = Vec::new();
+static mut REQUESTS_SENT: u16 = 0;
+static mut REPLIES_RECVD: u16 = 0;
 
 fn dns(domain: Domain) -> IpAddr {
     match lookup_host(domain.get_full_domain()) {
-        Ok(ips) => {
-            ips[0]
-        }
+        Ok(ips) => ips[0],
         Err(_) => panic!("DNS lookup did not resolve"),
     }
 }
@@ -58,10 +53,7 @@ fn get_ip_from_raw_addr(raw_addr: &String) -> IpAddr {
             ip_addr
         }
         Err(_) => match domain.parse_string(raw_addr.clone()) {
-            Ok(domain) => {
-                //assert_eq!(raw_addr, domain.get_full_domain());
-                dns(domain)
-            }
+            Ok(domain) => dns(domain),
             Err(_) => panic!("Not valid ip or hostname"),
         },
     }
@@ -72,7 +64,7 @@ fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
     loop {
         let mut buffer = [0u8; 42];
         let mut packet = MutableEchoRequestPacket::new(&mut buffer).unwrap();
-        let target: Option<time::SystemTime>  = Some(time::SystemTime::now());
+        let target: Option<time::SystemTime> = Some(time::SystemTime::now());
         let encoded: Vec<u8> = serialize(&target).unwrap();
         let decoded: Option<time::SystemTime> = deserialize(&encoded[..]).unwrap();
         assert_eq!(target, decoded);
@@ -98,32 +90,31 @@ fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
     }
 }
 
-fn calculate_rtt(icmp_seq : u16) -> time::Duration {
+fn calculate_rtt(icmp_seq: u16) -> time::Duration {
     let index = icmp_seq as usize;
     unsafe {
         let request_time = SEQ_TIME_MAP[index];
         match time::SystemTime::now().duration_since(request_time) {
             Ok(n) => n,
-            Err(_) => panic!("Failed to determine duration")
+            Err(_) => panic!("Failed to determine duration"),
         }
     }
 }
 
 fn calculate_packet_loss() -> f64 {
     unsafe {
-       REPLIES_RECVD = REPLIES_RECVD + 1;
-       let packet_loss : f64 = 1.0 - (REPLIES_RECVD as f64) / (REQUESTS_SENT as f64);
-       packet_loss
+        REPLIES_RECVD = REPLIES_RECVD + 1;
+        let packet_loss: f64 = 1.0 - (REPLIES_RECVD as f64) / (REQUESTS_SENT as f64);
+        packet_loss
     }
 }
 
 fn handle_icmp_packet(
     interface_name: &str,
     source: IpAddr,
-    destination: IpAddr,
     packet: &[u8],
     ttl: u8,
-    packet_size: usize
+    packet_size: usize,
 ) {
     let icmp_packet = IcmpPacket::new(packet);
     if let Some(icmp_packet) = icmp_packet {
@@ -132,16 +123,15 @@ fn handle_icmp_packet(
                 let echo_reply_packet = echo_reply::EchoReplyPacket::new(packet).unwrap();
                 let rtt = calculate_rtt(echo_reply_packet.get_sequence_number());
                 println!(
-                    "{} bytes from {}: icmp_seq={:?} ttl={} time={:?}.{} ms packet_loss={:.3}",
+                    "{} bytes from {}: icmp_seq={:?} ttl={} time={:.3} ms packet_loss={ploss:.3}",
                     packet_size,
                     source,
                     echo_reply_packet.get_sequence_number(),
                     ttl,
-                    rtt.as_millis(),
-                    rtt.as_nanos(),
-                    calculate_packet_loss(),
+                    (rtt.as_secs_f32() * 1000.0),
+                    ploss = calculate_packet_loss(),
                 );
-            },
+            }
             _ => (),
         }
     } else {
@@ -149,7 +139,13 @@ fn handle_icmp_packet(
     }
 }
 
-fn handle_icmpv6_packet(interface_name: &str, source: IpAddr, destination: IpAddr, packet: &[u8], ttl: u8, packet_size: usize) {
+fn handle_icmpv6_packet(
+    interface_name: &str,
+    source: IpAddr,
+    packet: &[u8],
+    ttl: u8,
+    packet_size: usize,
+) {
     let icmpv6_packet = Icmpv6Packet::new(packet);
     if let Some(icmpv6_packet) = icmpv6_packet {
         match icmpv6_packet.get_icmpv6_type() {
@@ -157,15 +153,15 @@ fn handle_icmpv6_packet(interface_name: &str, source: IpAddr, destination: IpAdd
                 let echo_reply_packet = echo_reply::EchoReplyPacket::new(packet).unwrap();
                 let rtt = calculate_rtt(echo_reply_packet.get_sequence_number());
                 println!(
-                    "{} bytes from {}: icmp_seq={:?} ttl={} time={:?}.{} ms",
+                    "{} bytes from {}: icmp_seq={:?} ttl={} time={:.3} ms packet_loss={ploss:.3}",
                     packet_size,
                     source,
                     echo_reply_packet.get_sequence_number(),
                     ttl,
-                    rtt.as_millis(),
-                    rtt.as_nanos(),
+                    (rtt.as_secs_f32() * 1000.0),
+                    ploss = calculate_packet_loss()
                 );
-            },
+            }
             _ => (),
         }
     } else {
@@ -176,7 +172,6 @@ fn handle_icmpv6_packet(interface_name: &str, source: IpAddr, destination: IpAdd
 fn handle_transport_protocol(
     interface_name: &str,
     source: IpAddr,
-    destination: IpAddr,
     protocol: IpNextHeaderProtocol,
     ttl: u8,
     packet_size: usize,
@@ -184,10 +179,10 @@ fn handle_transport_protocol(
 ) {
     match protocol {
         IpNextHeaderProtocols::Icmp => {
-            handle_icmp_packet(interface_name, source, destination, packet, ttl, packet_size)
+            handle_icmp_packet(interface_name, source, packet, ttl, packet_size)
         }
         IpNextHeaderProtocols::Icmpv6 => {
-            handle_icmpv6_packet(interface_name, source, destination, packet, ttl, packet_size)
+            handle_icmpv6_packet(interface_name, source, packet, ttl, packet_size)
         }
         _ => (),
     }
@@ -199,7 +194,6 @@ fn handle_ipv4_packet(interface_name: &str, ethernet: &EthernetPacket) {
         handle_transport_protocol(
             interface_name,
             IpAddr::V4(header.get_source()),
-            IpAddr::V4(header.get_destination()),
             header.get_next_level_protocol(),
             header.get_ttl(),
             Ipv4Packet::packet_size(&header.from_packet()),
@@ -216,7 +210,6 @@ fn handle_ipv6_packet(interface_name: &str, ethernet: &EthernetPacket) {
         handle_transport_protocol(
             interface_name,
             IpAddr::V6(header.get_source()),
-            IpAddr::V6(header.get_destination()),
             header.get_next_header(),
             header.get_hop_limit(),
             Ipv6Packet::packet_size(&header.from_packet()),
@@ -240,7 +233,11 @@ fn main() {
     let raw_addr = match env::args().nth(1) {
         Some(n) => n,
         None => {
-            writeln!(io::stderr(), "USAGE: ping <VALID IP OR HOSTNAME> [<NETWORK INTERFACE>]").unwrap();
+            writeln!(
+                io::stderr(),
+                "USAGE: ping <VALID IP OR HOSTNAME> [<NETWORK INTERFACE>]"
+            )
+            .unwrap();
             process::exit(1);
         }
     };
@@ -250,7 +247,9 @@ fn main() {
     let (sender, _) = match transport_channel(4096, Layer4(Ipv4(IpNextHeaderProtocols::Icmp))) {
         Ok((tx, rx)) => (tx, rx),
         Err(e) => panic!(
-            "An error occurred when creating the transport channel: {}", e),
+            "An error occurred when creating the transport channel: {}",
+            e
+        ),
     };
 
     let mut interfaces = datalink::interfaces()
@@ -264,28 +263,28 @@ fn main() {
                 .filter(interface_names_match)
                 .next()
                 .unwrap_or_else(|| panic!("Argument {} does not match any valid interface", n))
-        },
-        None => {
-            interfaces
-                .next()
-                .unwrap_or_else(|| panic!("No valid network interface"))
-        },
-
+        }
+        None => interfaces
+            .next()
+            .unwrap_or_else(|| panic!("No valid network interface")),
     };
 
-
-    println!("interface {}", interface);
     let (_, mut rx) = match datalink::channel(&interface, Default::default()) {
         Ok(Ethernet(tx, rx)) => (tx, rx),
         Ok(_) => panic!("unhandled channel type: {}"),
-        Err(e) => {
-            writeln!(io::stderr(), "Default network interface selection failed. Please specify interface.").unwrap();
+        Err(_) => {
+            writeln!(
+                io::stderr(),
+                "Default network interface selection failed. Please specify interface."
+            )
+            .unwrap();
             process::exit(1);
         }
     };
 
     thread::spawn(move || send_echo_request(sender, ip_addr.clone()));
 
+    // This code is from https://docs.rs/crate/pnet/0.25.0/source/examples/packetdump.rs
     loop {
         let mut buf: [u8; 1600] = [0u8; 1600];
         let mut fake_ethernet_frame = MutableEthernetPacket::new(&mut buf[..]).unwrap();
