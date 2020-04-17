@@ -1,6 +1,6 @@
 # pinginrust
 
-Usage: ping <VALID IP OR HOSTNAME> [<NETWORK INTERFACE>]
+Usage: `ping <VALID IP OR HOSTNAME> [<NETWORK INTERFACE>]`
   
 Requires elevated privileges as it sniffs packets. 
 
@@ -26,11 +26,11 @@ I'm done! That was fun. I'd like to clean it up a bit. The biggest challenges we
 
 I chose to send echo request packets as regular IPv4 packets at the transport level. I could make the publisher use the Ethernet channel, but I'm not sure what the benefits of that would be. Having to deal with consuming packets at Ethernet level is kind of a pain. 
 
-Resources consulted:
-[The Rust Language](https://doc.rust-lang.org/book/index.html)
-[Ping Explanation Whitepaper](http://images.globalknowledge.com/wwwimages/whitepaperpdf/WP_Mays_Ping.pdf)
-[Ping in C Geeksforgeeks](https://www.geeksforgeeks.org/ping-in-c/)
-[libpnet Examples](https://github.com/libpnet/libpnet/tree/master/examples)
+Resources consulted:<br/>
+[The Rust Language](https://doc.rust-lang.org/book/index.html)<br/>
+[Ping Explanation Whitepaper](http://images.globalknowledge.com/wwwimages/whitepaperpdf/WP_Mays_Ping.pdf)<br/>
+[Ping in C Geeksforgeeks](https://www.geeksforgeeks.org/ping-in-c/)<br/>
+[libpnet Examples](https://github.com/libpnet/libpnet/tree/master/examples)<br/>
 
 
 
