@@ -1,11 +1,10 @@
 use dns_lookup::lookup_host;
-use pnet::datalink::interfaces;
 use pnet::datalink::Channel::Ethernet;
 use pnet::datalink::{self, NetworkInterface};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
 use pnet::packet::icmp::echo_request::MutableEchoRequestPacket;
 use pnet::packet::icmp::{checksum, IcmpCode, IcmpPacket, IcmpTypes};
-use pnet::packet::icmp::{echo_reply, echo_request};
+use pnet::packet::icmp::echo_reply;
 use pnet::packet::icmpv6::{Icmpv6Packet, Icmpv6Types};
 use pnet::packet::ip::IpNextHeaderProtocol;
 use pnet::packet::ip::IpNextHeaderProtocols;
@@ -27,6 +26,10 @@ use validators::ipv4::IPv4Validator;
 use validators::ValidatorOption;
 use bincode::{serialize, deserialize};
 use pnet_macros_support::packet::FromPacket;
+
+static mut SEQ_TIME_MAP : Vec<time::SystemTime> = Vec::new();
+static mut REQUESTS_SENT : u16 = 0;
+static mut REPLIES_RECVD : u16 = 0;
 
 fn dns(domain: Domain) -> IpAddr {
     match lookup_host(domain.get_full_domain()) {
@@ -85,9 +88,12 @@ fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
             Err(e) => println!("{:?}", e),
         }
         unsafe {
-            seq_time_map.push(time::SystemTime::now());
+            SEQ_TIME_MAP.push(time::SystemTime::now());
         }
         icmp_seq = icmp_seq + 1;
+        unsafe {
+            REQUESTS_SENT = REQUESTS_SENT + 1;
+        }
         thread::sleep(time::Duration::from_secs(1));
     }
 }
@@ -95,11 +101,19 @@ fn send_echo_request(mut sender: TransportSender, ip_addr: IpAddr) {
 fn calculate_rtt(icmp_seq : u16) -> time::Duration {
     let index = icmp_seq as usize;
     unsafe {
-        let request_time = seq_time_map[index];
+        let request_time = SEQ_TIME_MAP[index];
         match time::SystemTime::now().duration_since(request_time) {
             Ok(n) => n,
             Err(_) => panic!("Failed to determine duration")
         }
+    }
+}
+
+fn calculate_packet_loss() -> f64 {
+    unsafe {
+       REPLIES_RECVD = REPLIES_RECVD + 1;
+       let packet_loss : f64 = 1.0 - (REPLIES_RECVD as f64) / (REQUESTS_SENT as f64);
+       packet_loss
     }
 }
 
@@ -118,13 +132,14 @@ fn handle_icmp_packet(
                 let echo_reply_packet = echo_reply::EchoReplyPacket::new(packet).unwrap();
                 let rtt = calculate_rtt(echo_reply_packet.get_sequence_number());
                 println!(
-                    "{} bytes from {}: icmp_seq={:?} ttl={} time={:?}.{} ms",
+                    "{} bytes from {}: icmp_seq={:?} ttl={} time={:?}.{} ms packet_loss={:.3}",
                     packet_size,
                     source,
                     echo_reply_packet.get_sequence_number(),
                     ttl,
                     rtt.as_millis(),
                     rtt.as_nanos(),
+                    calculate_packet_loss(),
                 );
             },
             _ => (),
@@ -220,8 +235,6 @@ fn handle_ethernet_frame(interface: &NetworkInterface, ethernet: &EthernetPacket
         _ => (),
     }
 }
-
-static mut seq_time_map : Vec<time::SystemTime> = Vec::new();
 
 fn main() {
     let raw_addr = match env::args().nth(1) {
