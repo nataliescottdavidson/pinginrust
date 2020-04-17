@@ -1,6 +1,6 @@
 # pinginrust
 
-Usage: `ping <VALID IP OR HOSTNAME> [<NETWORK INTERFACE>]`
+Usage: `cargo run <VALID IP OR HOSTNAME> [<NETWORK INTERFACE>]`
   
 Requires elevated privileges as it sniffs packets. 
 
